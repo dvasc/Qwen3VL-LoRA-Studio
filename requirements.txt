@@ -1,8 +1,10 @@
 # NOTE: For CUDA 12.4 support on Windows, run the following command manually:
-# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 # pip install -r requirements.txt
 
 flask
+torch
+torchvision
 transformers
 peft
 bitsandbytes
