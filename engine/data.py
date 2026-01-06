@@ -3,7 +3,7 @@ import base64
 import torch
 from io import BytesIO
 from PIL import Image
-from datasets import load_dataset, Dataset as HFDataset
+from datasets import load_dataset, Dataset as HFDataset, concatenate_datasets
 
 def base64_to_pil(base64_str: str) -> Image.Image:
     """Convert base64 data URI or raw string to PIL Image."""
@@ -113,6 +113,12 @@ def transform_reasoning_sample(sample, use_thinking: bool):
 def load_and_prepare_dataset(dataset_folder: str, allow_empty: bool = False, use_thinking: bool = False):
     """
     Loads, transforms, validates, and prepares the dataset from the folder.
+    
+    Refactored to handle heterogeneous schemas:
+    1. Loads files individually to isolate schema issues.
+    2. Applies transformation.
+    3. Prunes extraneous columns (like auxiliary metadata) immediately.
+    4. Concatenates all valid partial datasets into a final one.
     """
     data_files = collect_data_files(dataset_folder)
     if not data_files:
@@ -120,30 +126,52 @@ def load_and_prepare_dataset(dataset_folder: str, allow_empty: bool = False, use
             return None
         raise RuntimeError(f"No dataset files found in {dataset_folder}")
 
-    # Load via streaming first
-    full_dataset = load_dataset(
-        "json",
-        data_files=data_files,
-        split="train",
-        streaming=False 
-    )
+    valid_datasets = []
     
-    # 1. Transform: Merge thinking/response into messages if they exist
-    dataset = full_dataset.map(lambda x: transform_reasoning_sample(x, use_thinking))
-    
-    # 2. Validate: Ensure structure is correct (drops samples where messages=None)
-    dataset = dataset.filter(validate_sample)
-    
-    # Check length
-    if len(dataset) == 0:
+    print(f"[DataEngine] Found {len(data_files)} files. Loading iteratively...")
+
+    for file_path in data_files:
+        try:
+            # Load individual file
+            # We assume split="train" because load_dataset returns a DatasetDict otherwise
+            ds = load_dataset("json", data_files=file_path, split="train", streaming=False)
+            
+            # 1. Transform logic
+            ds = ds.map(lambda x: transform_reasoning_sample(x, use_thinking))
+            
+            # 2. Validate
+            ds = ds.filter(validate_sample)
+            
+            # 3. Standardize Schema: Keep ONLY 'messages'
+            # This prevents schema conflicts when concatenating files with different extra columns
+            if "messages" in ds.column_names:
+                ds = ds.select_columns(["messages"])
+            else:
+                print(f"⚠️ Skipping {os.path.basename(file_path)}: 'messages' column missing.")
+                continue
+
+            if len(ds) > 0:
+                valid_datasets.append(ds)
+            else:
+                print(f"⚠️ Skipping {os.path.basename(file_path)}: No valid samples after filtering.")
+                
+        except Exception as e:
+            print(f"❌ Error loading {os.path.basename(file_path)}: {str(e)}")
+            continue
+
+    if not valid_datasets:
         if allow_empty:
             return None
-        raise RuntimeError("No valid training samples found after validation.")
+        raise RuntimeError("No valid training samples found in any of the provided files.")
+
+    # 4. Concatenate
+    if len(valid_datasets) == 1:
+        final_dataset = valid_datasets[0]
+    else:
+        final_dataset = concatenate_datasets(valid_datasets)
     
-    # 3. Format: Keep only the messages column
-    return HFDataset.from_dict({
-        "messages": dataset["messages"]
-    })
+    print(f"[DataEngine] Successfully aggregated {len(final_dataset)} samples.")
+    return final_dataset
 
 class MultimodalCollator:
     """
