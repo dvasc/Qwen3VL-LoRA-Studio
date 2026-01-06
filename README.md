@@ -62,17 +62,19 @@ Open your web browser and navigate to **`http://127.0.0.1:5001`**.
 
 ---
 
+## /Qwen3VL-LoRA-Studio
+
 ## ☁️ Cloud Deployment (Google Compute Engine)
 
-Deploy the studio to a high-performance GPU instance on GCE for long training runs.
+Deploy the studio to a high-performance GPU instance on GCE.
 
 ### 1. Provision GCE Instance
 
 Create a GPU-enabled VM on GCE. For a complete guide, see:
 
-* [**📘 Cloud Provisioning Guide: GCE GPU Instances**](docs/07_gce_provisioning_guide.md) *(You would create this new file or link to the previously generated response)*
+* [**📘 Cloud Provisioning Guide: GCE GPU Instances**](docs/07_Cloud_Provisioning_Guide.md)
 
-### 2. Run the GCE Provisioner
+### 2. Run the System Provisioner
 
 Log into your new VM via SSH and run the setup script. This installs NVIDIA drivers, CUDA, and other system dependencies.
 
@@ -81,60 +83,35 @@ Log into your new VM via SSH and run the setup script. This installs NVIDIA driv
 git clone https://github.com/dvasc/Qwen3VL-LoRA-Studio.git
 cd Qwen3VL-LoRA-Studio
 
-# Make scripts executable and run
+# Make script executable and run
 chmod +x deploy/setup_gce.sh
 ./deploy/setup_gce.sh
+
+# IMPORTANT: Reboot after the script finishes to load drivers
+sudo reboot
 ```
 
-*Note: A reboot (`sudo reboot`) might be required after driver installation.*
+### 3. Launch the Studio & Configure
 
-### 3. Configure Remote Access
-
-Create a `.env` file from the example and add your ngrok authtoken. This token is required for secure remote access.
+After rebooting, SSH back into the VM and navigate to the project directory.
 
 ```bash
-cp .env.example .env
-nano .env  # Add your token here
-```
+cd Qwen3VL-LoRA-Studio
 
-### 4. Launch the Studio
-
-This script handles the virtual environment, dependency installation, and starts the Flask server with the ngrok tunnel.
-
-```bash
+# Make the launch script executable
 chmod +x deploy/launch.sh
+
+# Run the launcher
 ./deploy/launch.sh
 ```
+
+> **Architect's Note:** On the first run, the script will **automatically prompt you** to paste your `NGROK_AUTHTOKEN`. It will create and configure the `.env` file for you. On subsequent runs, it will skip this step.
 
 The terminal will display a public `ngrok.io` URL. Use this URL to access the studio from any device.
 
 ---
 
 ## 📂 Project Structure
-
-```
-/Qwen3VL-LoRA-Studio
-├── .venv/                  # Virtual environment
-├── deploy/                 # Cloud deployment scripts (GCE, launch)
-│   ├── setup_gce.sh
-│   └── launch.sh
-├── docs/                   # Comprehensive documentation
-├── engine/                 # Core training logic
-│   ├── config.py           # LoRA & SFT configurations
-│   ├── data.py             # Dataset loading & multimodal collation
-│   ├── model.py            # Model & processor loading (QLoRA)
-│   ├── monitoring.py       # Real-time callbacks & hardware polling
-│   └── trainer.py          # Main training orchestrator
-├── models/                 # Cached HuggingFace models
-├── outputs/                # Trained LoRA adapters
-├── static/                 # CSS & JavaScript for the web UI
-├── templates/              # HTML templates
-├── uploads/                # Uploaded datasets
-├── app.py                  # Flask server entry point & routing
-├── requirements.txt        # Python dependencies
-├── .env.example            # Template for environment variables
-└── README.md               # You are here
-```
 
 ---
 
