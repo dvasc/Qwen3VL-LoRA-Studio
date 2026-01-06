@@ -1,85 +1,123 @@
 #!/bin/bash
 
-# ============================================================================
-# Qwen3VL-LoRA-Studio: GCE GPU Environment Provisioner
-# Target OS: Ubuntu 22.04 LTS
-# ============================================================================
+# ==============================================================================
+# Qwen3VL-LoRA-Studio | GCE Provisioning Script
+# ==============================================================================
+# This script automates the setup of a Google Compute Engine instance for 
+# LoRA fine-tuning. It dynamically detects the OS version to install the 
+# correct NVIDIA drivers and CUDA toolkit, resolving compatibility issues 
+# between Ubuntu 22.04 and 24.04+.
+# ==============================================================================
 
-set -e  # Exit on error
+# Exit immediately if a command exits with a non-zero status
+set -e
 
-echo "----------------------------------------------------------------"
-echo "🚀 Starting System Provisioning for Qwen3VL-LoRA-Studio"
-echo "----------------------------------------------------------------"
+# Function for formatted logging
+log() {
+    echo -e "\n\033[1;32m[SETUP] $(date +'%Y-%m-%dT%H:%M:%S%z') - $1\033[0m\n"
+}
 
-# 1. System Updates & Essential Tools
-echo "[1/5] Updating system packages..."
-sudo apt-get update -y
-sudo apt-get upgrade -y
-sudo apt-get install -y \
-    build-essential \
-    software-properties-common \
-    python3-pip \
-    python3-dev \
-    python3-venv \
-    git \
-    curl \
-    wget \
-    ffmpeg \
-    libsm6 \
-    libxext6
+error() {
+    echo -e "\n\033[1;31m[ERROR] $(date +'%Y-%m-%dT%H:%M:%S%z') - $1\033[0m\n"
+    exit 1
+}
 
-# 2. NVIDIA Driver Check & Installation
-echo "[2/5] Checking for NVIDIA GPU hardware..."
-if lspci | grep -i nvidia > /dev/null; then
-    echo "✅ NVIDIA GPU detected."
-    if ! command -v nvidia-smi &> /dev/null; then
-        echo "⏳ Installing NVIDIA Drivers (Headless Server)..."
-        sudo add-apt-repository -y ppa:graphics-drivers/ppa
-        sudo apt-get update -y
-        # Installing version 535 as a stable baseline for CUDA 12.x
-        sudo apt-get install -y nvidia-driver-535-server
-        echo "⚠️  Drivers installed. A system reboot may be required later."
-    else
-        echo "✅ NVIDIA Drivers already present."
-        nvidia-smi -L
-    fi
+log "Initializing Environment Setup..."
+
+# ------------------------------------------------------------------------------
+# 1. OS & Architecture Detection
+# ------------------------------------------------------------------------------
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    DISTRO=$ID
+    VERSION_CLEAN=$(echo $VERSION_ID | tr -d '.')
+    ARCH=$(uname -m)
 else
-    echo "❌ No NVIDIA GPU detected. Training will be extremely slow on CPU."
+    error "Cannot detect OS information. /etc/os-release not found."
 fi
 
-# 3. CUDA Toolkit Installation (Targeting CUDA 12.4)
-echo "[3/5] Checking for CUDA Toolkit..."
-if ! command -v nvcc &> /dev/null; then
-    echo "⏳ Installing CUDA Toolkit 12.4..."
-    # Download official NVIDIA keyring
-    wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb
-    sudo dpkg -i cuda-keyring_1.1-1_all.deb
-    sudo apt-get update -y
-    sudo apt-get -y install cuda-toolkit-12-4
-    
-    # Update PATH (for current shell)
-    export PATH=/usr/local/cuda-12.4/bin${PATH:+:${PATH}}
-    export LD_LIBRARY_PATH=/usr/local/cuda-12.4/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
-    
-    # Add to .bashrc for persistence
-    echo 'export PATH=/usr/local/cuda-12.4/bin${PATH:+:${PATH}}' >> ~/.bashrc
-    echo 'export LD_LIBRARY_PATH=/usr/local/cuda-12.4/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}' >> ~/.bashrc
+log "Detected Environment: OS=$DISTRO, Version=$VERSION_ID ($VERSION_CLEAN), Arch=$ARCH"
+
+# Only support Ubuntu for this specific script logic
+if [ "$DISTRO" != "ubuntu" ]; then
+    error "This script is optimized for Ubuntu. Detected: $DISTRO"
+fi
+
+# ------------------------------------------------------------------------------
+# 2. System Updates & Basic Dependencies
+# ------------------------------------------------------------------------------
+log "Updating system package lists and base dependencies..."
+sudo apt-get update
+# Non-interactive upgrade to avoid prompts blocking the script
+sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -yq
+
+# UPDATED: 'python3-full' ensures ensurepip, venv, and distutils are present
+# on newer Ubuntu versions (24.04+), preventing virtualenv creation failures.
+sudo apt-get install -y wget git python3-pip python3-full build-essential
+
+# ------------------------------------------------------------------------------
+# 3. NVIDIA CUDA & Driver Installation (Dynamic)
+# ------------------------------------------------------------------------------
+log "Configuring NVIDIA CUDA Repositories for ${DISTRO}${VERSION_CLEAN}..."
+
+# Construct the dynamic URL for the NVIDIA keyring
+KEYRING_URL="https://developer.download.nvidia.com/compute/cuda/repos/${DISTRO}${VERSION_CLEAN}/${ARCH}/cuda-keyring_1.1-1_all.deb"
+
+# Download keyring
+wget "$KEYRING_URL" -O cuda-keyring.deb || error "Failed to download NVIDIA keyring from $KEYRING_URL"
+
+# Install keyring
+sudo dpkg -i cuda-keyring.deb
+sudo apt-get update
+
+log "Installing CUDA Toolkit 12.4 and Drivers..."
+# installing 'cuda-drivers' explicitly ensures the kernel modules are present
+# installing 'cuda-toolkit-12-4' ensures we have nvcc and libraries
+# We use DEBIAN_FRONTEND=noninteractive to suppress keyboard layout prompts etc.
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y cuda-toolkit-12-4 cuda-drivers
+
+# ------------------------------------------------------------------------------
+# 4. Environment Configuration
+# ------------------------------------------------------------------------------
+log "Configuring Path Variables..."
+
+# Add to .bashrc for persistence
+if ! grep -q "cuda-12.4" ~/.bashrc; then
+    echo 'export PATH=/usr/local/cuda-12.4/bin:$PATH' >> ~/.bashrc
+    echo 'export LD_LIBRARY_PATH=/usr/local/cuda-12.4/lib64:$LD_LIBRARY_PATH' >> ~/.bashrc
+fi
+
+# Export for immediate use in this script session
+export PATH=/usr/local/cuda-12.4/bin:$PATH
+export LD_LIBRARY_PATH=/usr/local/cuda-12.4/lib64:$LD_LIBRARY_PATH
+
+# ------------------------------------------------------------------------------
+# 5. Python Application Setup
+# ------------------------------------------------------------------------------
+log "Installing Python Dependencies..."
+
+# Note: We do not install requirements here anymore. We delegate that to launch.sh
+# inside the virtual environment to avoid polluting the system python.
+
+# ------------------------------------------------------------------------------
+# 6. Verification
+# ------------------------------------------------------------------------------
+log "Verifying Installation Status..."
+
+# Check for NVIDIA SMI (Driver Status)
+if command -v nvidia-smi &> /dev/null; then
+    log "NVIDIA Driver detected:"
+    nvidia-smi | head -n 10
 else
-    echo "✅ CUDA Toolkit already present."
+    error "nvidia-smi not found. Driver installation failed."
+fi
+
+# Check for NVCC (Toolkit Status)
+if command -v nvcc &> /dev/null; then
+    log "CUDA Compiler detected:"
     nvcc --version
+else
+    error "nvcc not found. CUDA Toolkit installation failed."
 fi
 
-# 4. Git Configuration (Optional)
-echo "[4/5] Setting up project directory..."
-# Ensuring we are in the project root relative to this script
-cd "$(dirname "$0")/.."
-PROJECT_ROOT=$(pwd)
-
-# 5. Summary
-echo "----------------------------------------------------------------"
-echo "✅ PROVISIONING COMPLETE"
-echo "----------------------------------------------------------------"
-echo "Next Steps:"
-echo "1. Reboot if you just installed NVIDIA drivers: 'sudo reboot'"
-echo "2. Run the cloud launcher: './deploy/launch.sh'"
-echo "----------------------------------------------------------------"
+log "Setup Completed Successfully! It is HIGHLY RECOMMENDED to reboot the instance now using 'sudo reboot'."

@@ -1,66 +1,108 @@
 #!/bin/bash
 
-# ============================================================================
-# Qwen3VL-LoRA-Studio: Cloud Launch Wrapper (Interactive v2)
-# Handles venv activation, dependency sync, interactive .env creation, 
-# and application startup.
-# ============================================================================
+# ==============================================================================
+# Qwen3VL-LoRA-Studio | Application Launch Script
+# ==============================================================================
+# This script manages the application runtime environment. It handles:
+# 1. Configuration (.env) verification and setup.
+# 2. Virtual Environment (.venv) creation and self-healing (repairing corrupt installs).
+# 3. Dependency management via pip.
+# 4. Starting the Flask application server.
+# ==============================================================================
 
+# Exit immediately if a command exits with a non-zero status
 set -e
 
-# Navigate to project root
-cd "$(dirname "$0")/.."
-PROJECT_ROOT=$(pwd)
+# Visual Formatting
+GREEN='\033[1;32m'
+RED='\033[1;31m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+log() {
+    echo -e "\n${GREEN}[LAUNCH] $1${NC}"
+}
+
+warn() {
+    echo -e "\n${YELLOW}[WARNING] $1${NC}"
+}
+
+error() {
+    echo -e "\n${RED}[ERROR] $1${NC}"
+    exit 1
+}
 
 echo "----------------------------------------------------------------"
-echo "🛠️  Preparing Qwen3VL-LoRA-Studio for Launch..."
+echo -e "🚀 Preparing Qwen3VL-LoRA-Studio for Launch..."
 echo "----------------------------------------------------------------"
 
-# --- Phase 1: Interactive Environment Configuration ---
-# Check if the .env file exists. If not, create it interactively.
+# ------------------------------------------------------------------------------
+# 1. Configuration Check (.env)
+# ------------------------------------------------------------------------------
 if [ ! -f ".env" ]; then
-    echo "⚠️  ACTION REQUIRED: .env file not found."
+    echo -e "${YELLOW}⚠️  ACTION REQUIRED: .env file not found.${NC}"
     echo "   Configuration is required for remote cloud access."
     echo ""
-
-    # Prompt the user for their token, hiding the input for security (-s flag)
-    read -s -p "🔑 Please paste your NGROK_AUTHTOKEN and press Enter: " NGROK_AUTHTOKEN
-    echo "" # Adds a newline for cleaner terminal output after the hidden input
-
-    # Validate that the user actually entered something
-    if [ -z "$NGROK_AUTHTOKEN" ]; then
-        echo "❌ FATAL: NGROK_AUTHTOKEN cannot be empty. Please run the script again."
-        exit 1
+    read -p "🔑 Please paste your NGROK_AUTHTOKEN and press Enter: " NGROK_TOKEN
+    
+    if [ -z "$NGROK_TOKEN" ]; then
+        error "Token cannot be empty. Launch aborted."
     fi
 
-    # Create the .env file with the captured token
-    echo "NGROK_AUTHTOKEN=$NGROK_AUTHTOKEN" > .env
-    # You can add other default variables here if needed in the future
-    # echo "PORT=5001" >> .env
-
-    echo "✅ Success! .env file created with your token."
-    echo "----------------------------------------------------------------"
+    echo "NGROK_AUTHTOKEN=$NGROK_TOKEN" > .env
+    echo -e "${GREEN}✅ Success! .env file created.${NC}"
 fi
 
-# --- Phase 2: Virtual Environment & Dependencies ---
-if [ ! -d ".venv" ]; then
-    echo "📦 Creating Python virtual environment..."
-    python3 -m venv .venv
+# ------------------------------------------------------------------------------
+# 2. Virtual Environment Management (Self-Healing)
+# ------------------------------------------------------------------------------
+VENV_DIR=".venv"
+
+# Check for corrupt state: Directory exists, but 'activate' script is missing
+# This happens if a previous 'python -m venv' failed midway (e.g., missing ensurepip)
+if [ -d "$VENV_DIR" ] && [ ! -f "$VENV_DIR/bin/activate" ]; then
+    warn "Corrupt virtual environment detected (missing bin/activate)."
+    log "Removing broken environment and attempting fresh creation..."
+    rm -rf "$VENV_DIR"
 fi
 
-echo "🔌 Activating virtual environment..."
-source .venv/bin/activate
+# Create Virtual Environment if it doesn't exist
+if [ ! -d "$VENV_DIR" ]; then
+    log "Creating Python virtual environment..."
+    
+    # Attempt creation. If this fails, it's likely due to missing system packages.
+    if ! python3 -m venv "$VENV_DIR"; then
+        echo ""
+        echo -e "${RED}❌ Virtual Environment Creation Failed.${NC}"
+        echo "   This usually means the 'python3-venv' or 'python3-full' system package is missing."
+        echo "   Please run the setup script again or execute:"
+        echo "   ${YELLOW}sudo apt-get update && sudo apt-get install -y python3-full${NC}"
+        exit 1
+    fi
+fi
 
-echo "🔄 Synchronizing dependencies (this may take a moment)..."
+# ------------------------------------------------------------------------------
+# 3. Dependency Management
+# ------------------------------------------------------------------------------
+log "Activating virtual environment..."
+source "$VENV_DIR/bin/activate"
+
+log "Checking and installing requirements..."
+# Upgrade pip to ensure wheel compatibility
 pip install --upgrade pip
-pip install -r requirements.txt
 
-# --- Phase 3: Application Launch ---
-echo "----------------------------------------------------------------"
-echo "🚀 STARTING APPLICATION SERVER"
-echo "----------------------------------------------------------------"
-echo "Point your browser to the ngrok URL shown below once initialized."
-echo "Press CTRL+C to stop the server."
+# Install requirements quietly, only showing errors
+if [ -f "requirements.txt" ]; then
+    pip install -r requirements.txt
+else
+    warn "requirements.txt not found! Skipping dependency installation."
+fi
+
+# ------------------------------------------------------------------------------
+# 4. Application Start
+# ------------------------------------------------------------------------------
+log "Starting Qwen3VL-LoRA-Studio..."
 echo "----------------------------------------------------------------"
 
-python app.py
+# Run the application
+python3 app.py
