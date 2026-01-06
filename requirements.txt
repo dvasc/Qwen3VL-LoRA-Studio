@@ -1,0 +1,17 @@
+# NOTE: For CUDA 12.4 support on Windows, run the following command manually:
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+# pip install -r requirements.txt
+
+flask
+transformers
+peft
+bitsandbytes
+accelerate
+trl
+datasets
+scipy
+pillow
+nvidia-ml-py
+protobuf
+pyngrok
+python-dotenv

@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>LoRA Studio</title>
+    <!-- Fonts: Inter (UI) and JetBrains Mono (Code/Terminal) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .split-zone { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+        .val-metrics-card { background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(56, 189, 248, 0.2); padding: 1rem; border-radius: 8px; margin-bottom: 1rem; backdrop-filter: blur(4px); }
+        .metric-row { display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .metric-row:last-child { border-bottom: none; }
+        .metric-label { color: #94a3b8; letter-spacing: -0.02em; }
+        .metric-val { color: #38bdf8; font-weight: 600; }
+        .subtext-opt { font-size: 0.7rem; color: #64748b; font-style: italic; display: block; margin-top: 5px; }
+        
+        /* Checkbox Style */
+        .checkbox-wrapper { 
+            display: flex; align-items: center; gap: 12px; 
+            padding: 12px; 
+            background: rgba(0,0,0,0.3); 
+            border: 1px solid var(--border); 
+            border-radius: 8px; 
+            transition: 0.2s ease;
+        }
+        .checkbox-wrapper:hover { border-color: var(--accent); }
+        .checkbox-wrapper input { 
+            accent-color: var(--accent); 
+            width: 16px; height: 16px; 
+            margin: 0; cursor: pointer; 
+        }
+        .checkbox-wrapper label { 
+            margin: 0; cursor: pointer; 
+            color: var(--text); font-size: 0.85rem; font-weight: 500; 
+        }
+    </style>
+</head>
+<body>
+    <div class="app-background"></div>
+    <div class="app-container">
+        <header>
+            <div class="brand">
+                <div class="brand-icon">
+                    <i class="fa-solid fa-layer-group"></i>
+                </div>
+                <div>
+                    <h1>LoRA Studio</h1>
+                    <span class="version">v2.0.0 // QWEN3-VL SYSTEM</span>
+                </div>
+            </div>
+            <div class="status-pill" id="globalStatus">
+                <span class="status-dot"></span>
+                <span class="status-text">SYSTEM IDLE</span>
+            </div>
+        </header>
+
+        <main>
+            <!-- CONFIG VIEW -->
+            <div id="configView" class="view active">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fa-solid fa-upload"></i> Dataset Ingestion
+                    </div>
+                    
+                    <div class="split-zone">
+                        <!-- Training Data Zone -->
+                        <div>
+                            <div class="drop-zone" id="dropZoneTrain">
+                                <div class="icon-circle">
+                                    <i class="fa-solid fa-database accent"></i>
+                                </div>
+                                <p class="zone-title">Training Data</p>
+                                <span class="subtext">Drop .jsonl files here</span>
+                                <input type="file" id="fileInputTrain" multiple hidden>
+                            </div>
+                            <div id="fileListTrain" class="file-list"></div>
+                        </div>
+
+                        <!-- Validation Data Zone -->
+                        <div>
+                            <div class="drop-zone secondary" id="dropZoneVal">
+                                <div class="icon-circle dimmed">
+                                    <i class="fa-solid fa-scale-balanced" style="color: #71717a;"></i>
+                                </div>
+                                <p class="zone-title" style="color: #a1a1aa;">Validation Data</p>
+                                <span class="subtext">Drop .jsonl files here</span>
+                                <span class="subtext-opt">(Optional)</span>
+                                <input type="file" id="fileInputVal" multiple hidden>
+                            </div>
+                            <div id="fileListVal" class="file-list"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fa-solid fa-sliders"></i> Hyperparameters
+                    </div>
+                    <div class="grid-form">
+                        <div class="form-group" style="grid-column: 1 / -1;">
+                            <label>Base Model ID</label>
+                            <div class="input-wrapper">
+                                <i class="fa-solid fa-box-open input-icon"></i>
+                                <input type="text" id="baseModel" list="modelOptions" 
+                                   value="huihui-ai/Huihui-Qwen3-VL-2B-Thinking-abliterated" 
+                                   placeholder="e.g. Qwen/Qwen2-VL-2B-Instruct">
+                            </div>
+                            <datalist id="modelOptions">
+                                <option value="huihui-ai/Huihui-Qwen3-VL-2B-Thinking-abliterated">Qwen3-VL-2B Thinking (Recommended)</option>
+                                <option value="Qwen/Qwen2.5-VL-3B-Instruct">Qwen2.5-VL-3B (New Standard)</option>
+                                <option value="Qwen/Qwen2-VL-2B-Instruct">Qwen2-VL-2B (Fastest)</option>
+                                <option value="unsloth/Qwen2-VL-7B-Instruct-bnb-4bit">Qwen2-VL-7B (4-bit / 12GB VRAM Max)</option>
+                            </datalist>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Epochs</label>
+                            <input type="number" id="epochs" value="3" min="1" max="10">
+                        </div>
+                        <div class="form-group">
+                            <label>Batch Size (Per Device)</label>
+                            <input type="number" id="batchSize" value="1" min="1" max="4">
+                        </div>
+                        <div class="form-group">
+                            <label>Learning Rate</label>
+                            <input type="text" id="lr" value="2e-4">
+                        </div>
+                        
+                        <!-- New Thinking Checkbox -->
+                        <div class="form-group">
+                            <label>Dataset Strategy</label>
+                            <div class="checkbox-wrapper">
+                                <input type="checkbox" id="useThinking">
+                                <label for="useThinking">Include "Thinking" Fields</label>
+                            </div>
+                        </div>
+                    </div>
+                    <button id="startBtn" class="btn-primary" disabled>
+                        <span>INITIALIZE TRAINING RUN</span>
+                        <i class="fa-solid fa-arrow-right"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- TRAINING VIEW -->
+            <div id="trainingView" class="view">
+                <!-- Hardware Monitor -->
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fa-solid fa-microchip"></i> Hardware Telemetry
+                    </div>
+                    <div class="monitor-grid">
+                        <div class="hud-item">
+                            <span class="hud-label">GPU DEVICE</span>
+                            <span class="hud-value small" id="gpuName">Scanning...</span>
+                            <div class="hud-bar-bg"><div class="hud-bar-fill" style="width: 100%"></div></div>
+                        </div>
+                        <div class="hud-item">
+                            <span class="hud-label">CORE LOAD</span>
+                            <span class="hud-value accent" id="gpuUtil">0%</span>
+                            <div class="hud-bar-bg"><div class="hud-bar-fill accent-bg" id="gpuUtilBar" style="width: 0%"></div></div>
+                        </div>
+                        <div class="hud-item">
+                            <span class="hud-label">VRAM ALLOCATION</span>
+                            <span class="hud-value" id="vramUsage">0 / 0 GB</span>
+                            <div class="hud-bar-bg"><div class="hud-bar-fill purple-bg" id="vramBar" style="width: 0%"></div></div>
+                        </div>
+                        <div class="hud-item">
+                            <span class="hud-label">THERMAL</span>
+                            <span class="hud-value" id="gpuTemp">--°C</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Progress Monitor -->
+                <div class="monitor-card">
+                    <div class="monitor-header">
+                        <div class="monitor-stat">
+                            <span class="label">STATUS</span>
+                            <span class="value accent-glow" id="monitorStatus">INITIALIZING</span>
+                        </div>
+                        <div class="monitor-stat right-align">
+                            <span class="label">ELAPSED / ETR</span>
+                            <span class="value mono"><span id="monitorTimer">00:00</span> <span class="divider">/</span> <span id="monitorETR" class="dimmed">--:--</span></span>
+                        </div>
+                    </div>
+                    
+                    <div class="progress-track">
+                        <div class="progress-fill" id="progressBar">
+                            <div class="progress-glow"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="progress-meta">
+                        <span class="meta-label">COMPLETION</span>
+                        <span class="meta-value" id="monitorPercent">0%</span>
+                    </div>
+
+                    <div id="activeControls" style="text-align: right; margin-bottom: 12px;">
+                        <button id="stopBtn" class="btn-danger-outline">
+                            <i class="fa-solid fa-hand"></i> ABORT SEQUENCE
+                        </button>
+                    </div>
+
+                    <div class="terminal-window">
+                        <div class="terminal-header">
+                            <span class="dot red"></span>
+                            <span class="dot yellow"></span>
+                            <span class="dot green"></span>
+                            <span class="title">training_log.stdout</span>
+                        </div>
+                        <div class="terminal" id="terminalLog">
+                            <div class="log-line system">> System initialized...</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="completionActions" class="hidden">
+                    <!-- Validation Results Container -->
+                    <div id="validationResults" class="val-metrics-card hidden">
+                        <div class="card-header" style="margin-bottom: 0.5rem; color: #fff;">
+                            <i class="fa-solid fa-check-double"></i> Validation Results
+                        </div>
+                        <div id="metricsBody"></div>
+                    </div>
+
+                    <div class="action-grid">
+                        <button id="downloadBtn" class="btn-success">
+                            <i class="fa-solid fa-download"></i> DOWNLOAD ADAPTER
+                        </button>
+                        <button id="resetBtn" class="btn-secondary">
+                            <i class="fa-solid fa-rotate-left"></i> NEW RUN
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script>
+        // Inline update for HUD bars to allow JS access easily
+        const hudObserver = new MutationObserver(() => {
+            // Simple visual logic if needed, but handled in main.js
+        });
+    </script>
+</body>
+</html>
