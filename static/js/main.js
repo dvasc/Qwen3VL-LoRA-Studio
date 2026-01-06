@@ -1,41 +1,29 @@
 const els = {
-    // Training Data Zone
+    // DOM Elements
     dropZoneTrain: document.getElementById('dropZoneTrain'),
     fileInputTrain: document.getElementById('fileInputTrain'),
     fileListTrain: document.getElementById('fileListTrain'),
-    
-    // Validation Data Zone
     dropZoneVal: document.getElementById('dropZoneVal'),
     fileInputVal: document.getElementById('fileInputVal'),
     fileListVal: document.getElementById('fileListVal'),
-
-    // Config Controls
     startBtn: document.getElementById('startBtn'),
     configView: document.getElementById('configView'),
     trainingView: document.getElementById('trainingView'),
-    useThinking: document.getElementById('useThinking'), // Checkbox
-    
-    // Monitor Elements
+    useThinking: document.getElementById('useThinking'),
     progressBar: document.getElementById('progressBar'),
     terminal: document.getElementById('terminalLog'),
     monitorStatus: document.getElementById('monitorStatus'),
     monitorTimer: document.getElementById('monitorTimer'),
     monitorETR: document.getElementById('monitorETR'),
     monitorPercent: document.getElementById('monitorPercent'),
-    
-    // Hardware Elements
     gpuName: document.getElementById('gpuName'),
     gpuUtil: document.getElementById('gpuUtil'),
     gpuUtilBar: document.getElementById('gpuUtilBar'),
     vramUsage: document.getElementById('vramUsage'),
     vramBar: document.getElementById('vramBar'),
     gpuTemp: document.getElementById('gpuTemp'),
-    
-    // Active Controls
     activeControls: document.getElementById('activeControls'),
     stopBtn: document.getElementById('stopBtn'),
-    
-    // Completion & Results
     completionActions: document.getElementById('completionActions'),
     downloadBtn: document.getElementById('downloadBtn'),
     resetBtn: document.getElementById('resetBtn'),
@@ -45,6 +33,20 @@ const els = {
 
 let pollInterval = null;
 let trainFileCount = 0;
+let trainingStartTime = null; // Stores Unix timestamp for live timer
+
+// --- Helper to format time ---
+function formatTime(seconds) {
+    if (seconds === null || isNaN(seconds)) return "00:00";
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    const pad = (num) => String(num).padStart(2, '0');
+    if (h > 0) {
+        return `${pad(h)}:${pad(m)}:${pad(s)}`;
+    }
+    return `${pad(m)}:${pad(s)}`;
+}
 
 // --- Setup Helper for Drop Zones ---
 function setupDropZone(zone, input, listElement, type) {
@@ -58,46 +60,24 @@ function setupDropZone(zone, input, listElement, type) {
     };
     input.onchange = (e) => handleUpload(e.target.files, type, listElement);
 }
-
-// Initialize Zones
 setupDropZone(els.dropZoneTrain, els.fileInputTrain, els.fileListTrain, 'train');
 setupDropZone(els.dropZoneVal, els.fileInputVal, els.fileListVal, 'val');
 
 async function handleUpload(files, type, listElement) {
     const formData = new FormData();
-    formData.append('type', type); // Identify 'train' or 'val'
+    formData.append('type', type);
     for (let i = 0; i < files.length; i++) {
         formData.append('files', files[i]);
     }
-
     try {
         const res = await fetch('/upload', { method: 'POST', body: formData });
         const data = await res.json();
-        
-        // Render File List
-        listElement.innerHTML = '';
-        data.paths.forEach(filename => {
-            const div = document.createElement('div');
-            div.style.padding = '8px';
-            div.style.borderBottom = '1px solid var(--border)';
-            div.style.fontSize = '0.8rem';
-            div.innerHTML = `<i class="fa-solid fa-file-code" style="margin-right:8px"></i> ${filename}`;
-            listElement.appendChild(div);
-        });
-
-        // Update State Logic
+        listElement.innerHTML = data.paths.map(f => `<div><i class="fa-solid fa-file-code"></i> ${f}</div>`).join('');
         if (type === 'train') {
             trainFileCount = data.count;
-            if (trainFileCount > 0) {
-                els.startBtn.disabled = false;
-                els.startBtn.innerHTML = `<i class="fa-solid fa-bolt"></i> Start Training`;
-            } else {
-                els.startBtn.disabled = true;
-                els.startBtn.innerHTML = `<i class="fa-solid fa-bolt"></i> Start Training Run`;
-            }
+            els.startBtn.disabled = trainFileCount === 0;
         }
     } catch (e) {
-        console.error(e);
         alert(`Upload failed for ${type} data.`);
     }
 }
@@ -109,155 +89,114 @@ els.startBtn.onclick = async () => {
         epochs: document.getElementById('epochs').value,
         batch_size: document.getElementById('batchSize').value,
         lr: document.getElementById('lr').value,
-        // Send the thinking flag state
         use_thinking: els.useThinking.checked
     };
-
     const res = await fetch('/train', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config)
     });
-
     if (res.ok) {
         els.configView.classList.remove('active');
         els.trainingView.classList.add('active');
-        // Reset UI State
         els.stopBtn.disabled = false;
-        els.stopBtn.innerHTML = '<i class="fa-solid fa-hand"></i> STOP TRAINING';
         els.activeControls.classList.remove('hidden');
         els.completionActions.classList.add('hidden');
         els.validationResults.classList.add('hidden');
+        trainingStartTime = null; // Reset timer state
         startPolling();
     }
 };
 
-// --- Stop Logic ---
 els.stopBtn.onclick = async () => {
     if (!confirm("Are you sure you want to stop? Partial progress will be saved.")) return;
-    
     els.stopBtn.disabled = true;
-    els.stopBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> STOPPING...';
-    
-    try {
-        await fetch('/stop', { method: 'POST' });
-    } catch (e) {
-        els.stopBtn.disabled = false;
-    }
+    await fetch('/stop', { method: 'POST' });
 };
 
 function startPolling() {
     pollInterval = setInterval(async () => {
         try {
-            // 1. Poll Status
             const res = await fetch('/status');
             const state = await res.json();
 
-            // Basic Metrics
+            // Live Timer Logic
+            if (state.status === 'TRAINING' && state.start_time) {
+                if (!trainingStartTime) {
+                    trainingStartTime = state.start_time;
+                }
+                const now = new Date().getTime() / 1000;
+                const elapsed = now - trainingStartTime;
+                els.monitorTimer.textContent = formatTime(elapsed);
+            } else {
+                els.monitorTimer.textContent = state.duration;
+            }
+
+            // Update UI from state
             els.monitorStatus.textContent = state.status;
-            els.monitorTimer.textContent = state.duration;
             els.monitorETR.textContent = state.etr || "--:--";
             els.monitorPercent.textContent = state.progress + '%';
             els.progressBar.style.width = state.progress + '%';
-
-            // Logs
             els.terminal.innerHTML = state.logs.map(l => `<div class="log-line">${l}</div>`).join('');
             els.terminal.scrollTop = els.terminal.scrollHeight;
 
-            // Completion Handling
-            if (state.status === 'FINISHED' || state.status === 'INTERRUPTED') {
+            // Handle end-of-training states
+            if (['FINISHED', 'INTERRUPTED', 'ERROR'].includes(state.status)) {
                 clearInterval(pollInterval);
-                els.monitorStatus.style.color = state.status === 'FINISHED' ? 'var(--success)' : '#f59e0b';
+                trainingStartTime = null;
+                els.monitorStatus.style.color = state.status === 'FINISHED' ? 'var(--success)' : (state.status === 'ERROR' ? '#ef4444' : '#f59e0b');
                 els.activeControls.classList.add('hidden');
-                els.completionActions.classList.remove('hidden');
-
-                // Render Validation Metrics if available
-                if (state.val_metrics) {
-                    renderMetrics(state.val_metrics);
+                if (state.status !== 'ERROR') {
+                    els.completionActions.classList.remove('hidden');
+                    if (state.val_metrics) renderMetrics(state.val_metrics);
+                } else {
+                    alert("Error: " + state.error_msg);
                 }
-            } else if (state.status === 'ERROR') {
-                clearInterval(pollInterval);
-                els.monitorStatus.style.color = '#ef4444';
-                els.activeControls.classList.add('hidden');
-                alert("Error: " + state.error_msg);
             }
 
-            // 2. Poll Hardware (Updated Logic for Phase 2 Refactor)
             const hwRes = await fetch('/hardware-status');
             const hw = await hwRes.json();
-            
-            if (hw.available) {
-                // Success State: Render metrics
-                els.gpuName.textContent = hw.gpu_name;
-                els.gpuName.style.color = 'var(--text-secondary)';
-                
-                els.gpuUtil.textContent = hw.utilization + '%';
-                els.gpuUtil.style.color = hw.utilization > 90 ? '#ef4444' : 'var(--accent)';
-                if (els.gpuUtilBar) els.gpuUtilBar.style.width = hw.utilization + '%';
-                
-                els.vramUsage.textContent = `${hw.vram_used} / ${hw.vram_total} GB`;
-                if (els.vramBar && hw.vram_total > 0) {
-                    const vramPercent = (hw.vram_used / hw.vram_total) * 100;
-                    els.vramBar.style.width = vramPercent + '%';
-                }
-                
-                els.gpuTemp.textContent = hw.temp + '°C';
-                els.gpuTemp.style.color = hw.temp > 85 ? '#ef4444' : 'var(--text-primary)';
-            } else {
-                // Error State: Render failures visually
-                els.gpuName.textContent = "HARDWARE NOT DETECTED";
-                els.gpuName.style.color = '#ef4444';
-                
-                els.gpuUtil.textContent = "ERR";
-                els.gpuUtil.style.color = '#ef4444';
-                if (els.gpuUtilBar) els.gpuUtilBar.style.width = '0%';
-                
-                els.vramUsage.textContent = "N/A";
-                if (els.vramBar) els.vramBar.style.width = '0%';
-                
-                els.gpuTemp.textContent = "ERR";
-                els.gpuTemp.style.color = '#ef4444';
-                
-                // Optional: Log specific error for debugging if needed
-                if (hw.error && console.debug) console.debug("HW Monitor Error:", hw.error);
-            }
+            updateHardwareUI(hw);
+
         } catch (err) {
             console.error("Polling error:", err);
         }
     }, 1000);
 }
 
-function renderMetrics(metrics) {
-    els.validationResults.classList.remove('hidden');
-    let html = '';
-    
-    // Sort keys to put Loss first
-    const keys = Object.keys(metrics).sort((a, b) => {
-        if (a === 'eval_loss') return -1;
-        if (b === 'eval_loss') return 1;
-        return 0;
-    });
-
-    for (const key of keys) {
-        // Clean up key names (e.g., eval_loss -> EVAL LOSS)
-        let label = key.replace('eval_', '').replace(/_/g, ' ').toUpperCase();
-        let value = metrics[key];
-        
-        // Format numbers
-        if (typeof value === 'number') {
-            value = value % 1 !== 0 ? value.toFixed(4) : value;
+function updateHardwareUI(hw) {
+    if (hw.available) {
+        els.gpuName.textContent = hw.gpu_name;
+        els.gpuUtil.textContent = hw.utilization + '%';
+        els.gpuUtilBar.style.width = hw.utilization + '%';
+        els.vramUsage.textContent = `${hw.vram_used} / ${hw.vram_total} GB`;
+        if (hw.vram_total > 0) {
+            els.vramBar.style.width = (hw.vram_used / hw.vram_total) * 100 + '%';
         }
+        els.gpuTemp.textContent = hw.temp + '°C';
+    } else {
+        els.gpuName.textContent = "HARDWARE NOT DETECTED";
+        els.gpuUtil.textContent = "ERR";
+        els.vramUsage.textContent = "N/A";
+        els.gpuTemp.textContent = "ERR";
         
-        html += `
-        <div class="metric-row">
-            <span class="metric-label">${label}</span>
-            <span class="metric-val">${value}</span>
-        </div>`;
+        // Style error states
+        [els.gpuName, els.gpuUtil, els.gpuTemp].forEach(el => el.style.color = '#ef4444');
+        els.gpuUtilBar.style.width = '0%';
+        els.vramBar.style.width = '0%';
     }
-    els.metricsBody.innerHTML = html;
 }
 
-// --- Footer Actions ---
+function renderMetrics(metrics) {
+    els.validationResults.classList.remove('hidden');
+    const keys = Object.keys(metrics).sort((a, b) => (a === 'eval_loss' ? -1 : b === 'eval_loss' ? 1 : 0));
+    els.metricsBody.innerHTML = keys.map(key => {
+        let label = key.replace('eval_', '').replace(/_/g, ' ').toUpperCase();
+        let value = typeof metrics[key] === 'number' ? metrics[key].toFixed(4) : metrics[key];
+        return `<div class="metric-row"><span class="metric-label">${label}</span><span class="metric-val">${value}</span></div>`;
+    }).join('');
+}
+
 els.downloadBtn.onclick = () => window.location.href = '/download';
 els.resetBtn.onclick = async () => {
     await fetch('/reset', { method: 'POST' });

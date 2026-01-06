@@ -16,12 +16,10 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL_CACHE_DIR = os.path.join(PROJECT_ROOT, "models")
 os.makedirs(MODEL_CACHE_DIR, exist_ok=True)
 
-# Note: Environment variables for HF_HOME are now handled in app.py.
-
 def load_model_and_processor(base_model_id: str, peft_config: LoraConfig):
     """
     Loads the Qwen3-VL model and processor, then applies the LoRA adapter configuration.
-    Uses BitsAndBytesConfig for modern 4-bit quantization and prepares model for k-bit training.
+    Uses BitsAndBytesConfig for 4-bit quantization and prepares model for k-bit training.
 
     Args:
         base_model_id (str): The HuggingFace model ID.
@@ -55,8 +53,9 @@ def load_model_and_processor(base_model_id: str, peft_config: LoraConfig):
         cache_dir=MODEL_CACHE_DIR,
     )
     
-    # CRITICAL: Prepare model for QLoRA training
-    # This enables input gradients (fixing the UserWarning) and casts layers for stability.
+    # CRITICAL: Prepare the quantized model for LoRA training.
+    # This enables gradient checkpointing and ensures layer stability,
+    # and silences the UserWarning about inputs not requiring gradients.
     print("[Engine] Preparing model for k-bit training...")
     model = prepare_model_for_kbit_training(model)
     
