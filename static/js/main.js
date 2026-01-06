@@ -63,27 +63,96 @@ function setupDropZone(zone, input, listElement, type) {
 setupDropZone(els.dropZoneTrain, els.fileInputTrain, els.fileListTrain, 'train');
 setupDropZone(els.dropZoneVal, els.fileInputVal, els.fileListVal, 'val');
 
+// --- Reusable File List Renderer ---
+function renderFileList(listElement, files, type) {
+    listElement.innerHTML = '';
+    files.forEach(file => {
+        const item = document.createElement('div');
+        item.className = 'file-item';
+        
+        const info = document.createElement('div');
+        info.className = 'file-info';
+        info.innerHTML = `<i class="fa-solid fa-file-code"></i> <span>${file}</span>`;
+        
+        const delBtn = document.createElement('button');
+        delBtn.className = 'action-btn';
+        delBtn.innerHTML = '<i class="fa-solid fa-trash-can"></i>';
+        delBtn.onclick = (e) => {
+            e.stopPropagation(); // Prevent dropzone click
+            deleteFile(file, type, listElement);
+        };
+        
+        item.appendChild(info);
+        item.appendChild(delBtn);
+        listElement.appendChild(item);
+    });
+}
+
+// --- Optimistic Loading UI ---
+function addLoadingItems(listElement, fileList) {
+    for (let i = 0; i < fileList.length; i++) {
+        const item = document.createElement('div');
+        item.className = 'file-item loading';
+        item.innerHTML = `
+            <div class="file-info">
+                <i class="fa-solid fa-spinner"></i> 
+                <span>${fileList[i].name} (Uploading...)</span>
+            </div>
+        `;
+        listElement.appendChild(item);
+    }
+}
+
 async function handleUpload(files, type, listElement) {
+    if (files.length === 0) return;
+
+    // 1. Optimistic UI: Show "loading" items immediately
+    addLoadingItems(listElement, files);
+
     const formData = new FormData();
     formData.append('type', type);
     for (let i = 0; i < files.length; i++) {
         formData.append('files', files[i]);
     }
+    
     try {
         const res = await fetch('/upload', { method: 'POST', body: formData });
         const data = await res.json();
         
-        // Refactored Logic:
-        // The server now returns the authoritative list of ALL files currently in the directory.
-        // We re-render the list entirely to stay in sync with the server state.
-        listElement.innerHTML = data.paths.map(f => `<div><i class="fa-solid fa-file-code"></i> ${f}</div>`).join('');
+        // 2. State Sync: Re-render list with authoritative server data
+        renderFileList(listElement, data.paths, type);
         
         if (type === 'train') {
-            trainFileCount = data.count; // Total files on server
+            trainFileCount = data.count; 
             els.startBtn.disabled = trainFileCount === 0;
         }
     } catch (e) {
         alert(`Upload failed for ${type} data.`);
+        // Note: On error, ghost items remain until reset or next sync. 
+        // Ideally we could fetch the list again to restore state, 
+        // but this simple alert is sufficient for now.
+    }
+}
+
+async function deleteFile(filename, type, listElement) {
+    if (!confirm(`Remove ${filename}?`)) return;
+    
+    try {
+        const res = await fetch('/delete_file', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename: filename, type: type })
+        });
+        const data = await res.json();
+        
+        renderFileList(listElement, data.paths, type);
+        
+        if (type === 'train') {
+            trainFileCount = data.count;
+            els.startBtn.disabled = trainFileCount === 0;
+        }
+    } catch (e) {
+        alert("Failed to delete file.");
     }
 }
 

@@ -145,7 +145,36 @@ header {
 }
 .zone-title { font-weight: 600; margin: 0 0 4px 0; font-size: 0.9rem; }
 .subtext { font-size: 0.75rem; color: var(--text-dim); }
-.file-list { margin-top: 10px; font-family: var(--font-mono); color: var(--text-secondary); }
+
+/* File List Items */
+.file-list { margin-top: 10px; font-family: var(--font-mono); color: var(--text-secondary); display: flex; flex-direction: column; gap: 4px; }
+.file-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    transition: background 0.2s;
+}
+.file-item:hover { background: rgba(255, 255, 255, 0.06); }
+.file-info { display: flex; align-items: center; gap: 8px; }
+.file-item.loading { opacity: 0.6; pointer-events: none; }
+.action-btn {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+.action-btn:hover { color: var(--danger); background: rgba(239, 68, 68, 0.1); }
+
+@keyframes spin { 100% { transform: rotate(360deg); } }
+.fa-spinner { animation: spin 1s linear infinite; }
+
 
 /* Inputs */
 .grid-form { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 2rem; }

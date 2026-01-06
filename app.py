@@ -79,16 +79,21 @@ def run_training_lifecycle(trainer_instance):
 def index():
     return render_template("index.html")
 
+def get_files_in_directory(directory):
+    """Helper to return sorted list of valid json/jsonl files in a directory."""
+    if not os.path.exists(directory):
+        return []
+    return sorted([
+        f for f in os.listdir(directory) 
+        if f.endswith(".jsonl") or f.endswith(".json")
+    ])
+
 @app.route("/upload", methods=["POST"])
 def upload_files():
     """
     Handles file uploads for training and validation sets.
-    
-    Refactored Logic:
-    1. Does NOT delete existing files in the directory.
-    2. Saves new files, appending to the directory.
-    3. Scans the directory to return the COMPLETE list of files currently staged.
-    This allows for additive uploads (e.g., drag-and-dropping multiple batches).
+    Additive upload logic: Saves files without deleting existing ones.
+    Returns the complete list of files in the directory.
     """
     if "files" not in request.files:
         return jsonify({"error": "No files provided"}), 400
@@ -103,17 +108,41 @@ def upload_files():
             file.save(filepath)
     
     # Scan directory for authoritative state
-    # We allow .jsonl and .json files
-    current_files = []
-    if os.path.exists(target_folder):
-        current_files = sorted([
-            f for f in os.listdir(target_folder) 
-            if f.endswith(".jsonl") or f.endswith(".json")
-        ])
+    current_files = get_files_in_directory(target_folder)
     
     return jsonify({
         "count": len(current_files), 
         "paths": current_files, 
+        "type": dataset_type
+    })
+
+@app.route("/delete_file", methods=["POST"])
+def delete_file():
+    """
+    Deletes a specific file from the specified dataset folder.
+    Returns the updated list of files.
+    """
+    filename = request.json.get("filename")
+    dataset_type = request.json.get("type")
+    
+    if not filename or not dataset_type:
+        return jsonify({"error": "Missing filename or type"}), 400
+        
+    target_folder = UPLOAD_FOLDER_VAL if dataset_type == "val" else UPLOAD_FOLDER_TRAIN
+    filepath = os.path.join(target_folder, filename)
+    
+    if os.path.exists(filepath):
+        try:
+            os.remove(filepath)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+            
+    # Return updated authoritative state
+    current_files = get_files_in_directory(target_folder)
+    
+    return jsonify({
+        "count": len(current_files),
+        "paths": current_files,
         "type": dataset_type
     })
 
@@ -179,23 +208,17 @@ def download_lora():
 
 @app.route("/reset", methods=["POST"])
 def reset():
-    """
-    Resets the training state and CLEARS all uploaded data files.
-    This is now the sole mechanism for clearing the staging area.
-    """
     TRAINING_STATE.update({
         "status": "IDLE", "progress": 0, "logs": [], "output_zip": None,
         "error_msg": None, "etr": "--:--", "duration": "00:00",
         "stop_signal": False, "val_metrics": None
     })
-    # Clear both Train and Val directories
     for folder in [UPLOAD_FOLDER_TRAIN, UPLOAD_FOLDER_VAL]:
         if os.path.exists(folder):
             for f in os.listdir(folder):
                 try:
                     os.remove(os.path.join(folder, f))
                 except Exception: pass
-                
     return jsonify({"status": "reset"})
 
 # ============================================================================
