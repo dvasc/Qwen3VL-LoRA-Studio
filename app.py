@@ -2,7 +2,7 @@ import os
 import sys
 import threading
 import time
-import logging
+import logging # <--- ADD THIS IMPORT
 from flask import Flask, render_template, request, jsonify, send_file
 from dotenv import load_dotenv
 
@@ -170,7 +170,6 @@ def hardware_status():
     Returns:
         JSON object with 'available' (bool) and either metrics or 'error'.
     """
-    # Calls the singleton monitor via the public interface in engine.monitoring
     return jsonify(get_hardware_status())
 
 @app.route("/download")
@@ -245,6 +244,15 @@ def init_ngrok(port):
 # Main Entry Point
 # ============================================================================
 if __name__ == "__main__":
+    # --- LOGGING CONFIGURATION ---
+    # Silence the default INFO logs from Werkzeug and Pyngrok to reduce terminal noise.
+    # We only want to see warnings and errors from these libraries.
+    log = logging.getLogger('werkzeug')
+    log.setLevel(logging.WARNING)
+    
+    pyngrok_logger = logging.getLogger('pyngrok')
+    pyngrok_logger.setLevel(logging.WARNING)
+    
     # Determine Port
     port_str = os.getenv("PORT", "5001")
     try:
@@ -256,5 +264,6 @@ if __name__ == "__main__":
     init_ngrok(port)
 
     # Start Flask
-    # debug=True is useful for this application to see server errors immediately
+    # Note: debug=True helps dev, but in prod consider debug=False. 
+    # For this 'Studio' app, debug=True is often useful for the logs.
     app.run(debug=True, port=port, host="0.0.0.0")
