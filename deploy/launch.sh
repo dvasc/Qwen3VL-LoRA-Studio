@@ -4,10 +4,11 @@
 # Qwen3VL-LoRA-Studio | Application Launch Script
 # ==============================================================================
 # This script manages the application runtime environment. It handles:
-# 1. Configuration (.env) verification and setup.
-# 2. Virtual Environment (.venv) creation and self-healing.
-# 3. Dependency management via pip.
-# 4. Starting the Flask application server.
+# 1. Automatic updates via Git (Best Effort).
+# 2. Configuration (.env) verification and setup.
+# 3. Virtual Environment (.venv) creation and self-healing.
+# 4. Dependency management via pip.
+# 5. Starting the Flask application server.
 # ==============================================================================
 
 # Exit immediately if a command exits with a non-zero status
@@ -33,7 +34,7 @@ error() {
 }
 
 # ------------------------------------------------------------------------------
-# 0. Environment Prep (Fixes NVML/Driver visibility issues)
+# 0. Environment Prep
 # ------------------------------------------------------------------------------
 # Ensure Python can find the NVIDIA driver shared libraries (libnvidia-ml.so)
 export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
@@ -43,7 +44,28 @@ echo -e "🚀 Preparing Qwen3VL-LoRA-Studio for Launch..."
 echo "----------------------------------------------------------------"
 
 # ------------------------------------------------------------------------------
-# 1. Configuration Check (.env)
+# 1. Auto-Update (Git Pull)
+# ------------------------------------------------------------------------------
+if [ -d ".git" ]; then
+    log "Checking for updates..."
+    # We temporarily disable 'set -e' so a failed pull doesn't stop the app from launching
+    set +e
+    git pull
+    EXIT_CODE=$?
+    set -e
+    
+    if [ $EXIT_CODE -eq 0 ]; then
+        log "Application is up to date."
+    else
+        warn "Failed to update repository (Network issue or Merge conflict)."
+        echo "   Proceeding with existing local version..."
+    fi
+else
+    warn "Not a git repository. Skipping update check."
+fi
+
+# ------------------------------------------------------------------------------
+# 2. Configuration Check (.env)
 # ------------------------------------------------------------------------------
 if [ ! -f ".env" ]; then
     echo -e "${YELLOW}⚠️  ACTION REQUIRED: .env file not found.${NC}"
@@ -60,7 +82,7 @@ if [ ! -f ".env" ]; then
 fi
 
 # ------------------------------------------------------------------------------
-# 2. Virtual Environment Management (Self-Healing)
+# 3. Virtual Environment Management (Self-Healing)
 # ------------------------------------------------------------------------------
 VENV_DIR=".venv"
 
@@ -87,7 +109,7 @@ if [ ! -d "$VENV_DIR" ]; then
 fi
 
 # ------------------------------------------------------------------------------
-# 3. Dependency Management
+# 4. Dependency Management
 # ------------------------------------------------------------------------------
 log "Activating virtual environment..."
 source "$VENV_DIR/bin/activate"
@@ -102,7 +124,7 @@ else
 fi
 
 # ------------------------------------------------------------------------------
-# 4. Application Start
+# 5. Application Start
 # ------------------------------------------------------------------------------
 log "Starting Qwen3VL-LoRA-Studio..."
 echo "----------------------------------------------------------------"
