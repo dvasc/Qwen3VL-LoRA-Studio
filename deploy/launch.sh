@@ -5,7 +5,7 @@
 # ==============================================================================
 # This script manages the application runtime environment. It handles:
 # 1. Configuration (.env) verification and setup.
-# 2. Virtual Environment (.venv) creation and self-healing (repairing corrupt installs).
+# 2. Virtual Environment (.venv) creation and self-healing.
 # 3. Dependency management via pip.
 # 4. Starting the Flask application server.
 # ==============================================================================
@@ -31,6 +31,12 @@ error() {
     echo -e "\n${RED}[ERROR] $1${NC}"
     exit 1
 }
+
+# ------------------------------------------------------------------------------
+# 0. Environment Prep (Fixes NVML/Driver visibility issues)
+# ------------------------------------------------------------------------------
+# Ensure Python can find the NVIDIA driver shared libraries (libnvidia-ml.so)
+export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
 
 echo "----------------------------------------------------------------"
 echo -e "🚀 Preparing Qwen3VL-LoRA-Studio for Launch..."
@@ -59,7 +65,6 @@ fi
 VENV_DIR=".venv"
 
 # Check for corrupt state: Directory exists, but 'activate' script is missing
-# This happens if a previous 'python -m venv' failed midway (e.g., missing ensurepip)
 if [ -d "$VENV_DIR" ] && [ ! -f "$VENV_DIR/bin/activate" ]; then
     warn "Corrupt virtual environment detected (missing bin/activate)."
     log "Removing broken environment and attempting fresh creation..."
@@ -70,12 +75,12 @@ fi
 if [ ! -d "$VENV_DIR" ]; then
     log "Creating Python virtual environment..."
     
-    # Attempt creation. If this fails, it's likely due to missing system packages.
+    # Attempt creation
     if ! python3 -m venv "$VENV_DIR"; then
         echo ""
         echo -e "${RED}❌ Virtual Environment Creation Failed.${NC}"
         echo "   This usually means the 'python3-venv' or 'python3-full' system package is missing."
-        echo "   Please run the setup script again or execute:"
+        echo "   Please run the following command to fix it:"
         echo "   ${YELLOW}sudo apt-get update && sudo apt-get install -y python3-full${NC}"
         exit 1
     fi
@@ -88,10 +93,8 @@ log "Activating virtual environment..."
 source "$VENV_DIR/bin/activate"
 
 log "Checking and installing requirements..."
-# Upgrade pip to ensure wheel compatibility
 pip install --upgrade pip
 
-# Install requirements quietly, only showing errors
 if [ -f "requirements.txt" ]; then
     pip install -r requirements.txt
 else
