@@ -17,7 +17,7 @@ class HardwareMonitor:
         except Exception as e:
             logger.error(f"Unexpected error initializing NVML: {e}")
 
-    def get_hardware_status(self):
+    def get_status(self):
         """
         Retrieves real-time hardware telemetry from the GPU.
         Returns a dictionary with safe default values if drivers/hardware are unavailable.
@@ -31,16 +31,15 @@ class HardwareMonitor:
         }
 
         if not self.nvml_initialized:
-            # Attempt re-initialization once if it failed previously (e.g. transient issue)
+            # Attempt re-initialization once if it failed previously
             try:
                 pynvml.nvmlInit()
                 self.nvml_initialized = True
             except Exception:
-                # Still failing, return the empty status to prevent UI crashes
                 return status
 
         try:
-            # We currently support monitoring the primary GPU (index 0)
+            # Monitor primary GPU (index 0)
             handle = pynvml.nvmlDeviceGetHandleByIndex(0)
             
             # 1. GPU Name
@@ -55,7 +54,7 @@ class HardwareMonitor:
 
             # 3. Memory Info
             memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-            # Convert bytes to GB for frontend display
+            # Convert bytes to GB
             status["memory_used"] = round(memory_info.used / (1024 ** 3), 1)
             status["memory_total"] = round(memory_info.total / (1024 ** 3), 1)
 
@@ -73,9 +72,22 @@ class HardwareMonitor:
         return status
 
     def shutdown(self):
-        """Clean up NVML resources."""
         if self.nvml_initialized:
             try:
                 pynvml.nvmlShutdown()
-            except Exception as e:
-                logger.error(f"Error shutting down NVML: {e}")
+            except Exception:
+                pass
+
+# ==============================================================================
+# MODULE INTERFACE (Fixes ImportError)
+# ==============================================================================
+
+# Global singleton instance
+_monitor_instance = HardwareMonitor()
+
+def get_hardware_status():
+    """
+    Public API function expected by app.py.
+    Delegates to the singleton HardwareMonitor instance.
+    """
+    return _monitor_instance.get_status()
