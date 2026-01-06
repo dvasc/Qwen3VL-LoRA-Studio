@@ -72,9 +72,14 @@ async function handleUpload(files, type, listElement) {
     try {
         const res = await fetch('/upload', { method: 'POST', body: formData });
         const data = await res.json();
+        
+        // Refactored Logic:
+        // The server now returns the authoritative list of ALL files currently in the directory.
+        // We re-render the list entirely to stay in sync with the server state.
         listElement.innerHTML = data.paths.map(f => `<div><i class="fa-solid fa-file-code"></i> ${f}</div>`).join('');
+        
         if (type === 'train') {
-            trainFileCount = data.count;
+            trainFileCount = data.count; // Total files on server
             els.startBtn.disabled = trainFileCount === 0;
         }
     } catch (e) {

@@ -18,7 +18,7 @@ from engine.monitoring import get_hardware_status, _format_time
 
 # ============================================================================
 # Initialization & Configuration
-# =================================com===========================================
+# ============================================================================
 load_dotenv()
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024 * 1024
@@ -81,24 +81,41 @@ def index():
 
 @app.route("/upload", methods=["POST"])
 def upload_files():
+    """
+    Handles file uploads for training and validation sets.
+    
+    Refactored Logic:
+    1. Does NOT delete existing files in the directory.
+    2. Saves new files, appending to the directory.
+    3. Scans the directory to return the COMPLETE list of files currently staged.
+    This allows for additive uploads (e.g., drag-and-dropping multiple batches).
+    """
     if "files" not in request.files:
         return jsonify({"error": "No files provided"}), 400
+    
     dataset_type = request.form.get("type", "train")
     target_folder = UPLOAD_FOLDER_VAL if dataset_type == "val" else UPLOAD_FOLDER_TRAIN
     
-    for f in os.listdir(target_folder):
-        try:
-            os.remove(os.path.join(target_folder, f))
-        except Exception: pass
-    
-    saved_paths = []
+    # Save new files
     for file in request.files.getlist("files"):
         if file.filename and (file.filename.endswith(".jsonl") or file.filename.endswith(".json")):
             filepath = os.path.join(target_folder, file.filename)
             file.save(filepath)
-            saved_paths.append(file.filename) 
     
-    return jsonify({"count": len(saved_paths), "paths": saved_paths, "type": dataset_type})
+    # Scan directory for authoritative state
+    # We allow .jsonl and .json files
+    current_files = []
+    if os.path.exists(target_folder):
+        current_files = sorted([
+            f for f in os.listdir(target_folder) 
+            if f.endswith(".jsonl") or f.endswith(".json")
+        ])
+    
+    return jsonify({
+        "count": len(current_files), 
+        "paths": current_files, 
+        "type": dataset_type
+    })
 
 @app.route("/train", methods=["POST"])
 def start_training():
@@ -162,16 +179,23 @@ def download_lora():
 
 @app.route("/reset", methods=["POST"])
 def reset():
+    """
+    Resets the training state and CLEARS all uploaded data files.
+    This is now the sole mechanism for clearing the staging area.
+    """
     TRAINING_STATE.update({
         "status": "IDLE", "progress": 0, "logs": [], "output_zip": None,
         "error_msg": None, "etr": "--:--", "duration": "00:00",
         "stop_signal": False, "val_metrics": None
     })
+    # Clear both Train and Val directories
     for folder in [UPLOAD_FOLDER_TRAIN, UPLOAD_FOLDER_VAL]:
-        for f in os.listdir(folder):
-            try:
-                os.remove(os.path.join(folder, f))
-            except Exception: pass
+        if os.path.exists(folder):
+            for f in os.listdir(folder):
+                try:
+                    os.remove(os.path.join(folder, f))
+                except Exception: pass
+                
     return jsonify({"status": "reset"})
 
 # ============================================================================
