@@ -26,7 +26,9 @@ const els = {
     // Hardware Elements
     gpuName: document.getElementById('gpuName'),
     gpuUtil: document.getElementById('gpuUtil'),
+    gpuUtilBar: document.getElementById('gpuUtilBar'),
     vramUsage: document.getElementById('vramUsage'),
+    vramBar: document.getElementById('vramBar'),
     gpuTemp: document.getElementById('gpuTemp'),
     
     // Active Controls
@@ -180,16 +182,44 @@ function startPolling() {
                 alert("Error: " + state.error_msg);
             }
 
-            // 2. Poll Hardware
+            // 2. Poll Hardware (Updated Logic for Phase 2 Refactor)
             const hwRes = await fetch('/hardware-status');
             const hw = await hwRes.json();
             
             if (hw.available) {
+                // Success State: Render metrics
                 els.gpuName.textContent = hw.gpu_name;
+                els.gpuName.style.color = 'var(--text-secondary)';
+                
                 els.gpuUtil.textContent = hw.utilization + '%';
-                els.vramUsage.textContent = `${hw.vram_used} / ${hw.vram_total} GB`;
-                els.gpuTemp.textContent = hw.temp + '°C';
                 els.gpuUtil.style.color = hw.utilization > 90 ? '#ef4444' : 'var(--accent)';
+                if (els.gpuUtilBar) els.gpuUtilBar.style.width = hw.utilization + '%';
+                
+                els.vramUsage.textContent = `${hw.vram_used} / ${hw.vram_total} GB`;
+                if (els.vramBar && hw.vram_total > 0) {
+                    const vramPercent = (hw.vram_used / hw.vram_total) * 100;
+                    els.vramBar.style.width = vramPercent + '%';
+                }
+                
+                els.gpuTemp.textContent = hw.temp + '°C';
+                els.gpuTemp.style.color = hw.temp > 85 ? '#ef4444' : 'var(--text-primary)';
+            } else {
+                // Error State: Render failures visually
+                els.gpuName.textContent = "HARDWARE NOT DETECTED";
+                els.gpuName.style.color = '#ef4444';
+                
+                els.gpuUtil.textContent = "ERR";
+                els.gpuUtil.style.color = '#ef4444';
+                if (els.gpuUtilBar) els.gpuUtilBar.style.width = '0%';
+                
+                els.vramUsage.textContent = "N/A";
+                if (els.vramBar) els.vramBar.style.width = '0%';
+                
+                els.gpuTemp.textContent = "ERR";
+                els.gpuTemp.style.color = '#ef4444';
+                
+                // Optional: Log specific error for debugging if needed
+                if (hw.error && console.debug) console.debug("HW Monitor Error:", hw.error);
             }
         } catch (err) {
             console.error("Polling error:", err);

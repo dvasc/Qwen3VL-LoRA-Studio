@@ -1,166 +1,169 @@
 import logging
-import torch
+import atexit
 from transformers import TrainerCallback
 
 # Configure logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("HardwareMonitor")
 
-# Safety Check for NVML
+# Try to import pynvml; handle the case where it's missing entirely
 try:
     import pynvml
-    PYNVML_AVAILABLE = True
+    PYNVML_INSTALLED = True
 except ImportError:
-    PYNVML_AVAILABLE = False
-    logger.warning("pynvml not installed. Falling back to PyTorch/Safe Mode.")
-
-# ==============================================================================
-# HARDWARE TELEMETRY LOGIC
-# ==============================================================================
+    PYNVML_INSTALLED = False
+    logger.error("❌ pynvml not installed. Hardware monitoring will be disabled.")
 
 class HardwareMonitor:
+    """
+    Singleton class to manage NVIDIA GPU telemetry via NVML.
+    Provides cross-platform monitoring for GCE (Linux) and Local (Windows).
+    """
     def __init__(self):
-        self.nvml_initialized = False
+        self.available = False
+        self.handle = None
+        self.error_msg = None
+        self.device_index = 0  # Default to primary GPU
         
-        if PYNVML_AVAILABLE:
-            try:
-                pynvml.nvmlInit()
-                self.nvml_initialized = True
-                logger.info("✅ NVML Initialized Successfully (Advanced Monitoring Active)")
-            except Exception as e:
-                logger.error(f"⚠️ NVML Initialization Failed: {e}")
+        # Attempt initialization immediately upon instantiation
+        self._initialize_nvml()
 
-    def get_status(self):
+    def _initialize_nvml(self):
         """
-        Retrieves hardware telemetry and formats it for the frontend.
+        Attempts to load the NVML driver and acquire a handle to the GPU.
         """
-        # 1. Initialize Default "Safe" Values
-        # We populate every conceivable key name to ensure the Frontend finds what it needs.
-        data = {
-            # Identification
-            "gpu_name": "Scanning...",
-            "device_name": "Scanning...",
-            "name": "Scanning...",
-            "gpu_device": "Scanning...", # Matches UI Label "GPU DEVICE"
+        if not PYNVML_INSTALLED:
+            self.error_msg = "pynvml library not found in environment."
+            return
 
-            # Load (0-100)
-            "load": 0,
-            "gpu_load": 0,
-            "core_load": 0,          # Matches UI Label "CORE LOAD"
-            "utilization": 0,
-
-            # Memory (Bytes) - Most likely what the UI math expects
-            "memory_used": 0,
-            "memory_total": 0,
-            "vram_used": 0,
-            "vram_total": 0,
+        try:
+            pynvml.nvmlInit()
+            # Get handle for the first GPU
+            self.handle = pynvml.nvmlDeviceGetHandleByIndex(self.device_index)
+            self.available = True
             
-            # Memory (GB) - Fallback if UI doesn't do math
-            "memory_used_gb": 0,
-            "memory_total_gb": 0,
-            "vram_used_gb": 0,
-            "vram_total_gb": 0,
-            "vram_allocation": 0,    # Matches UI Label "VRAM ALLOCATION"
+            # Log success with device name
+            name = pynvml.nvmlDeviceGetName(self.handle)
+            if isinstance(name, bytes):
+                name = name.decode("utf-8")
+            logger.info(f"✅ NVML Initialized. Monitoring GPU: {name}")
+            
+        except pynvml.NVMLError as e:
+            self.available = False
+            self.error_msg = self._format_nvml_error(e)
+            logger.warning(f"⚠️ NVML Initialization Failed: {self.error_msg}")
+        except Exception as e:
+            self.available = False
+            self.error_msg = f"Unexpected Error: {str(e)}"
+            logger.error(f"⚠️ Critical Hardware Monitor Error: {self.error_msg}")
 
-            # Temperature
-            "temperature": "--",
-            "temp": "--",
-            "thermal": "--",         # Matches UI Label "THERMAL"
-            "gpu_temp": "--"
-        }
+    def _format_nvml_error(self, err):
+        """Helper to make NVML errors human-readable."""
+        msg = str(err)
+        if "LibraryNotFound" in msg:
+            return "NVIDIA Driver Not Found"
+        if "DriverNotLoaded" in msg:
+            return "NVIDIA Driver Not Loaded"
+        if "NoDevice" in msg:
+            return "No NVIDIA GPU Detected"
+        return msg
 
-        # 2. Strategy A: NVML (Preferred)
-        if self.nvml_initialized:
-            try:
-                handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-                
-                # Name
-                name_bytes = pynvml.nvmlDeviceGetName(handle)
-                name = name_bytes.decode("utf-8") if isinstance(name_bytes, bytes) else name_bytes
-                
-                # Load (%)
-                util = pynvml.nvmlDeviceGetUtilizationRates(handle).gpu
-                
-                # Memory (Bytes)
-                mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
-                raw_used = mem.used
-                raw_total = mem.total
-                
-                # Temp (C)
-                temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
+    def get_telemetry(self):
+        """
+        Retrieves real-time metrics from the GPU.
+        Returns a dictionary with 'available' boolean and metrics or error info.
+        """
+        # Scenario 1: Monitor is in error state (Driver missing/broken)
+        if not self.available:
+            return {
+                "available": False,
+                "error": self.error_msg or "Unknown Initialization Error"
+            }
 
-                # Update Dictionary
-                data.update({
-                    "gpu_name": name, "device_name": name, "name": name, "gpu_device": name,
-                    "load": util, "gpu_load": util, "core_load": util, "utilization": util,
-                    
-                    "memory_used": raw_used, "vram_used": raw_used,
-                    "memory_total": raw_total, "vram_total": raw_total,
-                    
-                    "memory_used_gb": round(raw_used / (1024**3), 1),
-                    "memory_total_gb": round(raw_total / (1024**3), 1),
-                    
-                    # Heuristic: If UI label is "VRAM ALLOCATION", it might expect a formatted string or raw bytes
-                    "vram_allocation": raw_used, 
-                    
-                    "temperature": temp, "temp": temp, "thermal": temp, "gpu_temp": temp
-                })
-            except Exception:
-                pass
+        # Scenario 2: Monitor is active, fetch data
+        try:
+            # 1. Name
+            name = pynvml.nvmlDeviceGetName(self.handle)
+            if isinstance(name, bytes):
+                name = name.decode("utf-8")
 
-        # 3. Strategy B: PyTorch Fallback
-        elif torch.cuda.is_available():
-            try:
-                name = torch.cuda.get_device_name(0)
-                raw_used = torch.cuda.memory_allocated(0)
-                raw_total = torch.cuda.get_device_properties(0).total_memory
-                
-                data.update({
-                    "gpu_name": name, "device_name": name, "name": name, "gpu_device": name,
-                    "memory_used": raw_used, "vram_used": raw_used,
-                    "memory_total": raw_total, "vram_total": raw_total,
-                    "vram_allocation": raw_used,
-                    "memory_used_gb": round(raw_used / (1024**3), 1),
-                    "memory_total_gb": round(raw_total / (1024**3), 1)
-                })
-            except Exception:
-                pass
+            # 2. Utilization (Core Load)
+            # Returns object with .gpu and .memory attributes
+            util_rates = pynvml.nvmlDeviceGetUtilizationRates(self.handle)
+            gpu_load = util_rates.gpu
 
-        # DEBUG: Print exactly what we are sending to the UI
-        # This will show up in your terminal. If these numbers are > 0, the backend is fixed.
-        # logger.info(f"[HardwareMonitor] Payload: {data}")
-        
-        return data
+            # 3. Memory (VRAM)
+            # Returns object with .total, .free, .used attributes (in bytes)
+            mem_info = pynvml.nvmlDeviceGetMemoryInfo(self.handle)
+            
+            # Convert to GB for frontend display
+            vram_used_gb = round(mem_info.used / (1024**3), 1)
+            vram_total_gb = round(mem_info.total / (1024**3), 1)
+
+            # 4. Temperature
+            temp = pynvml.nvmlDeviceGetTemperature(self.handle, pynvml.NVML_TEMPERATURE_GPU)
+
+            return {
+                "available": True,
+                "gpu_name": name,
+                "utilization": gpu_load,
+                "vram_used": vram_used_gb,
+                "vram_total": vram_total_gb,
+                "temp": temp
+            }
+
+        except pynvml.NVMLError as e:
+            # If reading fails (e.g., driver crashed), mark as unavailable
+            self.available = False
+            self.error_msg = f"Runtime Error: {self._format_nvml_error(e)}"
+            return {
+                "available": False,
+                "error": self.error_msg
+            }
 
     def shutdown(self):
-        if self.nvml_initialized:
+        """Cleanly releases NVML resources."""
+        if self.available and PYNVML_INSTALLED:
             try:
                 pynvml.nvmlShutdown()
             except Exception:
                 pass
+            self.available = False
 
 # ==============================================================================
-# CALLBACKS
+# SINGLETON INSTANTIATION & LIFECYCLE
+# ==============================================================================
+
+# Initialize singleton
+monitor = HardwareMonitor()
+
+# Register cleanup on app exit
+atexit.register(monitor.shutdown)
+
+def get_hardware_status():
+    """Public interface for the API route."""
+    return monitor.get_telemetry()
+
+# ==============================================================================
+# TRAINING CALLBACKS
 # ==============================================================================
 
 class EnhancedStateCallback(TrainerCallback):
+    """
+    Callback to update the global app state dictionary during training.
+    Used by the LoraTrainer in engine/trainer.py.
+    """
     def __init__(self, app_state, total_steps):
         self.app_state = app_state
         self.total_steps = total_steps
 
     def on_log(self, args, state, control, logs=None, **kwargs):
         if logs:
+            # Capture loss
             if "loss" in logs:
                 self.app_state["current_loss"] = round(logs["loss"], 4)
+            
+            # Calculate percentage progress
             if self.total_steps > 0:
                 progress = (state.global_step / self.total_steps) * 100
                 self.app_state["progress"] = round(progress, 1)
-
-# ==============================================================================
-# MODULE INTERFACE
-# ==============================================================================
-
-_monitor_instance = HardwareMonitor()
-
-def get_hardware_status():
-    return _monitor_instance.get_status()

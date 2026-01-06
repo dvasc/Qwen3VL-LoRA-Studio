@@ -165,6 +165,12 @@ def get_status():
 
 @app.route("/hardware-status")
 def hardware_status():
+    """
+    Proxy route for hardware telemetry.
+    Returns:
+        JSON object with 'available' (bool) and either metrics or 'error'.
+    """
+    # Calls the singleton monitor via the public interface in engine.monitoring
     return jsonify(get_hardware_status())
 
 @app.route("/download")
@@ -217,8 +223,6 @@ def init_ngrok(port):
 
     try:
         # Prevent double-tunneling during Flask reload
-        # WERKZEUG_RUN_MAIN is set by Flask when reloader is active.
-        # We want the tunnel to start only in the server process.
         if os.environ.get("WERKZEUG_RUN_MAIN") != "true":
             # Config ngrok
             conf.get_default().auth_token = token
@@ -231,7 +235,7 @@ def init_ngrok(port):
             print(f"🔗 ACCESS UI HERE: {public_url}")
             print("="*60 + "\n")
             
-            # Log to application state so it might appear in logs if we add a "System" log tab later
+            # Log to application state
             TRAINING_STATE["logs"].append(f"System: Remote access tunnel enabled at {public_url}")
             
     except Exception as e:
@@ -252,6 +256,5 @@ if __name__ == "__main__":
     init_ngrok(port)
 
     # Start Flask
-    # Note: debug=True helps dev, but in prod consider debug=False. 
-    # For this 'Studio' app, debug=True is often useful for the logs.
+    # debug=True is useful for this application to see server errors immediately
     app.run(debug=True, port=port, host="0.0.0.0")
