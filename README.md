@@ -1,3 +1,4 @@
+
 # 🚀 Qwen3VL LoRA Studio
 
 ![Python Version](https://img.shields.io/badge/Python-3.10+-blue.svg)![Framework](https://img.shields.io/badge/Framework-Flask-black.svg)![License](https://img.shields.io/badge/License-MIT-green.svg)![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)
@@ -23,15 +24,17 @@ A self-contained, browser-based interface for fine-tuning Qwen3-VL series multim
 
 ---
 
-## Getting Started
+## Getting Started (Local Development)
 
 ### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/dvasc/Qwen3VL-LoRA-Studio.git
-cd Qwen3VL-LoRA-Studio```
+cd Qwen3VL-LoRA-Studio
+```
 
 ### 2. Create and Activate Virtual Environment
+
 ```bash
 # Windows
 python -m venv .venv
@@ -43,8 +46,6 @@ source .venv/bin/activate
 ```
 
 ### 3. Install Dependencies
-
-This will install PyTorch with CUDA support and all other required packages.
 
 ```bash
 pip install -r requirements.txt
@@ -62,28 +63,29 @@ Open your web browser and navigate to **`http://127.0.0.1:5001`**.
 
 ---
 
-## /Qwen3VL-LoRA-Studio
-
 ## ☁️ Cloud Deployment (Google Compute Engine)
 
-Deploy the studio to a high-performance GPU instance on GCE.
+Deploy the studio to a high-performance GPU instance on GCE using this streamlined process.
 
-### 1. Provision GCE Instance
+### 1. Initial Setup on VM
 
-Create a GPU-enabled VM on GCE. For a complete guide, see:
+Log into your new GCE instance via SSH.
 
-* [**📘 Cloud Provisioning Guide: GCE GPU Instances**](docs/07_Cloud_Provisioning_Guide.md)
+```bash
+# 1. Install prerequisites (git and full python environment for venv)
+sudo apt-get update && sudo apt-get install -y git python3-full
+
+# 2. Clone the repo and enter the directory
+git clone https://github.com/dvasc/Qwen3VL-LoRA-Studio.git
+cd Qwen3VL-LoRA-Studio
+```
 
 ### 2. Run the System Provisioner
 
-Log into your new VM via SSH and run the setup script. This installs NVIDIA drivers, CUDA, and other system dependencies.
+This one-click script installs NVIDIA drivers, CUDA, and other system dependencies.
 
 ```bash
-# Clone the repo first
-git clone https://github.com/dvasc/Qwen3VL-LoRA-Studio.git
-cd Qwen3VL-LoRA-Studio
-
-# Make script executable and run
+# Make the script executable and run it
 chmod +x deploy/setup_gce.sh
 ./deploy/setup_gce.sh
 
@@ -91,33 +93,54 @@ chmod +x deploy/setup_gce.sh
 sudo reboot
 ```
 
-### 3. Launch the Studio & Configure
+### 3. Launch the Studio
 
-After rebooting, SSH back into the VM and navigate to the project directory.
+After rebooting, SSH back into the VM and launch the application.
 
 ```bash
+# Navigate back to the project directory
 cd Qwen3VL-LoRA-Studio
 
-# Make the launch script executable
+# Make the launch script executable and run it
 chmod +x deploy/launch.sh
-
-# Run the launcher
 ./deploy/launch.sh
 ```
 
-> **Architect's Note:** On the first run, the script will **automatically prompt you** to paste your `NGROK_AUTHTOKEN`. It will create and configure the `.env` file for you. On subsequent runs, it will skip this step.
+> On the first run, the script will **prompt you to paste your `NGROK_AUTHTOKEN`**. The terminal will then display a public `ngrok.io` URL. Use this URL to access the studio from any device.
 
-The terminal will display a public `ngrok.io` URL. Use this URL to access the studio from any device.
+For a more detailed guide on GCE instance creation, see:
+
+* [**📘 Cloud Provisioning Guide: GCE**](docs/Cloud_Provisioning_Guide.md)
 
 ---
 
 ## 📂 Project Structure
 
+```
+/Qwen3VL-LoRA-Studio-app
+├── app.py                  # Main Flask application
+├── deploy/                 # Deployment scripts for GCE
+│   ├── launch.sh           # Starts the application (self-healing)
+│   └── setup_gce.sh        # Provisions a GCE instance
+├── docs/                   # All project documentation
+├── engine/                 # Core training, data, and monitoring logic
+│   ├── trainer.py
+│   ├── monitoring.py
+│   └── ...
+├── models/                 # Cached HuggingFace models
+├── outputs/                # Saved LoRA adapters
+├── static/                 # CSS and JavaScript files
+├── templates/              # HTML templates
+├── uploads/                # User-uploaded datasets
+├── .env.example            # Environment variable template
+└── requirements.txt        # Python dependencies
+```
+
 ---
 
 ## 📚 Documentation
 
-This project contains extensive documentation covering every aspect of its operation, from quick-start guides to deep architectural dives. Start with the navigation guide to find what you need.
+This project contains extensive documentation. Start with the navigation guide to find what you need.
 
 * [**🗺️ 06_navigation_guide.md**](docs/06_navigation_guide.md)
 * [**🚀 01_quick_reference.md**](docs/01_quick_reference.md)
@@ -127,4 +150,4 @@ This project contains extensive documentation covering every aspect of its opera
 
 ## 📜 License
 
-This project is licensed under the MIT License. See the `LICENSE` file for details.
+This project is licensed under the MIT License.
