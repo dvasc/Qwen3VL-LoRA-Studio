@@ -48,6 +48,7 @@ docs/
 *.zip
 *.tar.gz
 *.log
+Qwen3VL-LoRA-Studio-app.txt
 
 # --- Security & Credentials ---
 # NEVER push your .env file to GitHub as it contains your Ngrok token
