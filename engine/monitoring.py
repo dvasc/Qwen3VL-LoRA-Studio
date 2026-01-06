@@ -12,7 +12,7 @@ try:
     PYNVML_AVAILABLE = True
 except ImportError:
     PYNVML_AVAILABLE = False
-    logger.warning("pynvml not installed. Falling back to PyTorch for monitoring.")
+    logger.warning("pynvml not installed. Falling back to PyTorch/Safe Mode.")
 
 # ==============================================================================
 # HARDWARE TELEMETRY LOGIC
@@ -21,7 +21,6 @@ except ImportError:
 class HardwareMonitor:
     def __init__(self):
         self.nvml_initialized = False
-        self.driver_error = False
         
         if PYNVML_AVAILABLE:
             try:
@@ -30,49 +29,47 @@ class HardwareMonitor:
                 logger.info("✅ NVML Initialized Successfully (Advanced Monitoring Active)")
             except Exception as e:
                 logger.error(f"⚠️ NVML Initialization Failed: {e}")
-                self.driver_error = True
 
     def get_status(self):
         """
-        Retrieves hardware telemetry.
-        Returns a 'Key Spam' dictionary containing Raw Bytes, GBs, and various
-        naming conventions to ensure the frontend finds what it needs.
+        Retrieves hardware telemetry and formats it for the frontend.
         """
-        # Default / Scanning State
+        # 1. Initialize Default "Safe" Values
+        # We populate every conceivable key name to ensure the Frontend finds what it needs.
         data = {
-            "name": "Scanning...",
+            # Identification
             "gpu_name": "Scanning...",
-            "device": "Scanning...",
-            
-            # Load: Provide both 0-100 integer and formatted string
+            "device_name": "Scanning...",
+            "name": "Scanning...",
+            "gpu_device": "Scanning...", # Matches UI Label "GPU DEVICE"
+
+            # Load (0-100)
             "load": 0,
             "gpu_load": 0,
+            "core_load": 0,          # Matches UI Label "CORE LOAD"
             "utilization": 0,
-            "core_load": 0,
-            
-            # Memory: CRITICAL FIX - Provide RAW BYTES for frontend math
-            "memory_used": 0,      # Raw Bytes
-            "memory_total": 0,     # Raw Bytes
+
+            # Memory (Bytes) - Most likely what the UI math expects
+            "memory_used": 0,
+            "memory_total": 0,
             "vram_used": 0,
             "vram_total": 0,
             
-            # Memory: Provide Pre-calculated GB just in case
+            # Memory (GB) - Fallback if UI doesn't do math
             "memory_used_gb": 0,
             "memory_total_gb": 0,
             "vram_used_gb": 0,
             "vram_total_gb": 0,
-            
+            "vram_allocation": 0,    # Matches UI Label "VRAM ALLOCATION"
+
             # Temperature
             "temperature": "--",
             "temp": "--",
-            "thermal": "--",
+            "thermal": "--",         # Matches UI Label "THERMAL"
             "gpu_temp": "--"
         }
 
-        # ----------------------------------------------------------------------
-        # STRATEGY 1: Advanced NVML Monitoring (Primary)
-        # ----------------------------------------------------------------------
-        success_nvml = False
+        # 2. Strategy A: NVML (Preferred)
         if self.nvml_initialized:
             try:
                 handle = pynvml.nvmlDeviceGetHandleByIndex(0)
@@ -81,74 +78,58 @@ class HardwareMonitor:
                 name_bytes = pynvml.nvmlDeviceGetName(handle)
                 name = name_bytes.decode("utf-8") if isinstance(name_bytes, bytes) else name_bytes
                 
-                # Load (Returns % as int, e.g. 45)
+                # Load (%)
                 util = pynvml.nvmlDeviceGetUtilizationRates(handle).gpu
                 
-                # Memory (Returns Bytes)
+                # Memory (Bytes)
                 mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
                 raw_used = mem.used
                 raw_total = mem.total
-                gb_used = round(raw_used / (1024 ** 3), 1)
-                gb_total = round(raw_total / (1024 ** 3), 1)
                 
-                # Temp (Returns C as int, e.g. 65)
+                # Temp (C)
                 temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
 
-                # Populate ALL variations
+                # Update Dictionary
                 data.update({
-                    "name": name, "gpu_name": name, "device": name,
+                    "gpu_name": name, "device_name": name, "name": name, "gpu_device": name,
+                    "load": util, "gpu_load": util, "core_load": util, "utilization": util,
                     
-                    "load": util, "gpu_load": util, "utilization": util, "core_load": util,
+                    "memory_used": raw_used, "vram_used": raw_used,
+                    "memory_total": raw_total, "vram_total": raw_total,
                     
-                    # Raw Bytes (likely what the UI expects for "0 / 0 GB" math)
-                    "memory_used": raw_used, "vram_used": raw_used, "mem_used": raw_used,
-                    "memory_total": raw_total, "vram_total": raw_total, "mem_total": raw_total,
-                    "vram_allocation": raw_used, # Guessing key based on UI label
+                    "memory_used_gb": round(raw_used / (1024**3), 1),
+                    "memory_total_gb": round(raw_total / (1024**3), 1),
                     
-                    # GB Versions
-                    "memory_used_gb": gb_used, "vram_used_gb": gb_used,
-                    "memory_total_gb": gb_total, "vram_total_gb": gb_total,
+                    # Heuristic: If UI label is "VRAM ALLOCATION", it might expect a formatted string or raw bytes
+                    "vram_allocation": raw_used, 
                     
                     "temperature": temp, "temp": temp, "thermal": temp, "gpu_temp": temp
                 })
-                success_nvml = True
-            except Exception as e:
-                # NVML transient failure, fall through to PyTorch
+            except Exception:
                 pass
 
-        # ----------------------------------------------------------------------
-        # STRATEGY 2: PyTorch Fallback (Secondary)
-        # ----------------------------------------------------------------------
-        if not success_nvml and torch.cuda.is_available():
+        # 3. Strategy B: PyTorch Fallback
+        elif torch.cuda.is_available():
             try:
-                # Name
                 name = torch.cuda.get_device_name(0)
-                
-                # Memory (Torch returns Bytes)
                 raw_used = torch.cuda.memory_allocated(0)
                 raw_total = torch.cuda.get_device_properties(0).total_memory
-                gb_used = round(raw_used / (1024 ** 3), 1)
-                gb_total = round(raw_total / (1024 ** 3), 1)
                 
                 data.update({
-                    "name": name, "gpu_name": name, "device": name,
-                    
-                    # Raw Bytes
-                    "memory_used": raw_used, "vram_used": raw_used, "mem_used": raw_used,
-                    "memory_total": raw_total, "vram_total": raw_total, "mem_total": raw_total,
+                    "gpu_name": name, "device_name": name, "name": name, "gpu_device": name,
+                    "memory_used": raw_used, "vram_used": raw_used,
+                    "memory_total": raw_total, "vram_total": raw_total,
                     "vram_allocation": raw_used,
-                    
-                    # GB Versions
-                    "memory_used_gb": gb_used, "vram_used_gb": gb_used,
-                    "memory_total_gb": gb_total, "vram_total_gb": gb_total,
-                    
-                    # Static/Unknown values for things Torch can't read
-                    "load": 0, "gpu_load": 0,
-                    "temperature": "--", "temp": "--"
+                    "memory_used_gb": round(raw_used / (1024**3), 1),
+                    "memory_total_gb": round(raw_total / (1024**3), 1)
                 })
             except Exception:
-                data["gpu_name"] = "Unknown CUDA Device"
+                pass
 
+        # DEBUG: Print exactly what we are sending to the UI
+        # This will show up in your terminal. If these numbers are > 0, the backend is fixed.
+        # logger.info(f"[HardwareMonitor] Payload: {data}")
+        
         return data
 
     def shutdown(self):
@@ -159,13 +140,10 @@ class HardwareMonitor:
                 pass
 
 # ==============================================================================
-# CALLBACKS (REQUIRED FOR TRAINER)
+# CALLBACKS
 # ==============================================================================
 
 class EnhancedStateCallback(TrainerCallback):
-    """
-    Updates global app state with training progress.
-    """
     def __init__(self, app_state, total_steps):
         self.app_state = app_state
         self.total_steps = total_steps
@@ -179,7 +157,7 @@ class EnhancedStateCallback(TrainerCallback):
                 self.app_state["progress"] = round(progress, 1)
 
 # ==============================================================================
-# MODULE INTERFACE (REQUIRED FOR APP.PY)
+# MODULE INTERFACE
 # ==============================================================================
 
 _monitor_instance = HardwareMonitor()
